@@ -1,6 +1,8 @@
 #include <coroutine>
 #include <functional>
 #include <iostream>
+#include <type_traits>
+#include <utility>
 
 //
 // 1. Initialize the task and store the coroutine handle associated with the
@@ -128,6 +130,49 @@ template <class R, class... Args>
 struct function_traits<std::function<R(Args...)>>
     : public function_traits<R(Args...)> {};
 
+template <class T> struct tuple_pop_front;
+
+template <class T, class... Args>
+struct tuple_pop_front<std::tuple<T, Args...>> {
+  using result_t = std::tuple<Args...>;
+};
+
+template <class T>
+using tuple_pop_front_t = typename tuple_pop_front<T>::result_t;
+
+static_assert(std::is_same_v<tuple_pop_front_t<std::tuple<int, float>>,
+                             std::tuple<float>>);
+static_assert(std::is_same_v<tuple_pop_front_t<std::tuple<int>>, std::tuple<>>);
+
+template <class T, class U> struct tuple_pop_back_impl;
+
+template <class T, std::size_t... I>
+struct tuple_pop_back_impl<T, std::index_sequence<I...>> {
+  using result_t = std::tuple<std::tuple_element_t<I, T>...>;
+};
+
+template <class T> struct tuple_pop_back;
+
+template <class T, class... Args>
+struct tuple_pop_back<std::tuple<T, Args...>> {
+  constexpr static std::size_t N = sizeof...(Args);
+  using tuple_type = std::tuple<T, Args...>;
+  using helper_sequence = std::make_index_sequence<N>;
+  using result_t =
+      typename tuple_pop_back_impl<tuple_type, helper_sequence>::result_t;
+};
+
+template <class T> struct tuple_pop_back<std::tuple<T>> {
+  using result_t = std::tuple<>;
+};
+
+template <class T>
+using tuple_pop_back_t = typename tuple_pop_back<T>::result_t;
+
+static_assert(
+    std::is_same_v<tuple_pop_back_t<std::tuple<int, float>>, std::tuple<int>>);
+static_assert(std::is_same_v<tuple_pop_back_t<std::tuple<int>>, std::tuple<>>);
+
 template <class F, class U> struct awaiter;
 
 //
@@ -152,19 +197,34 @@ template <class F, class... Args> struct awaiter<F, std::tuple<Args...>> {
   result_type await_resume() noexcept { return result_; }
 };
 
-// A helper function to make an async function awaitable
-template <class F, class... Args> auto awaitable(F func, Args &&...args) {
-  return awaiter<F, std::tuple<std::decay_t<Args>...>>{
-      func, std::make_tuple(std::forward<Args>(args)...)};
+template <class T> struct make_awaitable_helper;
+
+template <class... Args> struct make_awaitable_helper<std::tuple<Args...>> {
+  template <class F> static auto make_awaitable(F func) {
+    return [func](Args... args) {
+      return awaiter<F, std::tuple<std::decay_t<Args>...>>{
+          func, std::make_tuple(std::forward<Args>(args)...)};
+    };
+  }
+};
+
+// This is a helper function that allows an async function to be made awaitable,
+// similar to the functionality of utils.promisify in Node.js.
+template <class F> auto make_awaitable(F func) {
+  using args_t = typename function_traits<F>::args_type;
+  using args_without_callback_t = tuple_pop_back_t<args_t>;
+  return make_awaitable_helper<args_without_callback_t>::make_awaitable(func);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+//
 // The test code is a simple asynchronous addition operation:
 // There is an async function called async_add that takes two integers and a
 // callback function as its last parameter. It returns the sum of the two
 // integers via the callback. The result will be calculated in deferred ticks of
 // the main loop.
+//
 
 struct async_add_operation {
   int a;
@@ -191,7 +251,15 @@ void async_add(int a, int b, std::function<void(int)> callback) {
 
 // Await async_add's result in a simple task
 task simple_task(int a, int b) {
-  auto [result] = co_await awaitable(async_add, a, b);
+  //
+  // Make a ordinary async function awaitable, e.g.
+  // convert
+  // `async_add(a, b, [](int result) { ... })`
+  // to:
+  // `auto [result] = awaitable_add(a, b)`
+  //
+  auto awaitable_add = make_awaitable(async_add);
+  auto [result] = co_await awaitable_add(a, b);
   std::cout << "result: " << result << std::endl;
   co_return;
 }
