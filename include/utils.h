@@ -4,6 +4,8 @@
 #include <tuple>
 #include <type_traits>
 
+namespace copp {
+
 template <class T> struct function_traits;
 
 template <class R, class... Args> struct function_traits<R(Args...)> {
@@ -61,3 +63,5 @@ using tuple_pop_back_t = typename tuple_pop_back<T>::result_t;
 static_assert(
     std::is_same_v<tuple_pop_back_t<std::tuple<int, float>>, std::tuple<int>>);
 static_assert(std::is_same_v<tuple_pop_back_t<std::tuple<int>>, std::tuple<>>);
+
+} // namespace copp

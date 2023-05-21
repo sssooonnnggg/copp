@@ -8,6 +8,8 @@
 
 #include "utils.h"
 
+namespace copp {
+
 template <class F, class U> struct awaiter;
 
 //
@@ -50,3 +52,5 @@ template <class F> auto make_awaitable(F func) {
   using args_without_callback_t = tuple_pop_back_t<args_t>;
   return make_awaitable_helper<args_without_callback_t>::make_awaitable(func);
 }
+
+} // namespace copp

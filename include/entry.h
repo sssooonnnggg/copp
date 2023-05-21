@@ -4,6 +4,8 @@
 #include <iostream>
 #include <type_traits>
 
+namespace copp {
+
 // Entry coroutine, used as coroutine's entry point
 struct entry final {
   struct promise_type {
@@ -34,3 +36,5 @@ struct entry final {
   bool done() const { return handle_.done(); }
   std::coroutine_handle<promise_type> handle_;
 };
+
+} // namespace copp

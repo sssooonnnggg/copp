@@ -4,6 +4,8 @@
 #include <iostream>
 #include <type_traits>
 
+namespace copp {
+
 //
 // 1. Initialize the task and store the coroutine handle associated with the
 // task.
@@ -83,3 +85,5 @@ struct task final {
   // Hold coroutine handle associative with this task
   std::coroutine_handle<promise_type> taskHandle_;
 };
+
+} // namespace copp
