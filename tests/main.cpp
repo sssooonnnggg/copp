@@ -42,7 +42,7 @@ void async_add(int a, int b, std::function<void(int)> callback) {
 }
 
 // Await async_add's result in a simple task
-copp::task simple_task(int a, int b) {
+copp::task<int> simple_task(int a, int b) {
   //
   // Make a ordinary async function awaitable, e.g.
   // convert
@@ -53,13 +53,15 @@ copp::task simple_task(int a, int b) {
   auto awaitable_add = copp::make_awaitable(async_add);
   auto [result] = co_await awaitable_add(a, b);
   std::cout << "result: " << result << std::endl;
-  co_return;
+  co_return result;
+  //   co_return;
 }
 
 // Execute two simple tasks in entry coroutine in sequence
 copp::entry test_task() {
-  co_await simple_task(1, 2);
-  co_await simple_task(3, 4);
+  auto result1 = co_await simple_task(1, 2);
+  std::cout << "result from co_await: " << result1 << std::endl;
+  //   co_await simple_task(3, 4);
   co_return;
 }
 

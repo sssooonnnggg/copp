@@ -16,53 +16,58 @@ namespace copp {
 // 4. When the task is destroyed (i.e., goes out of local variable lifetime), we
 // should destroy the coroutine.
 //
-struct task final {
+template <class D> struct promise_base {
+  promise_base() {
+    std::cout << "task coroutine created: "
+              << std::coroutine_handle<D>::from_promise(static_cast<D &>(*this))
+                     .address()
+              << std::endl;
+  }
+
+  // task will be executed deferred
+  std::suspend_always initial_suspend() noexcept { return {}; }
+
+  // Step 3: when task is finished, we should resume caller coroutine
+  auto final_suspend() noexcept {
+    // return final awaiter
+    struct final_awaiter {
+      std::coroutine_handle<> callerHandle_;
+      // await_ready is used for optimisation, we always return false
+      bool await_ready() noexcept { return false; }
+      std::coroutine_handle<> await_suspend(std::coroutine_handle<D>) noexcept {
+        // resume caller coroutine
+        return this->callerHandle_;
+      }
+      void await_resume() noexcept {}
+    };
+    return final_awaiter{callerHandle_};
+  }
+  // Currently we don't handle exceptions
+  void unhandled_exception() noexcept {}
+  // Hold caller coroutine's handle
+  std::coroutine_handle<> callerHandle_;
+};
+
+template <class D, class T> struct promise_impl : public promise_base<D> {
+  void return_value(T value) noexcept { this->value_ = value; }
+  T value_;
+};
+
+template <class D> struct promise_impl<D, void> : public promise_base<D> {
+  void return_void() noexcept {}
+};
+
+template <class T = void> struct task final {
   ~task() {
     // Step 4: We should call coroutine_handle::destroy() to destroy coroutine
     taskHandle_.destroy();
     std::cout << "task destructor" << std::endl;
   }
-  struct promise_type {
-    promise_type() {
-      std::cout
-          << "task coroutine created: "
-          << std::coroutine_handle<promise_type>::from_promise(*this).address()
-          << std::endl;
-    }
-    ~promise_type() {
-      std::cout
-          << "task coroutine destroyed: "
-          << std::coroutine_handle<promise_type>::from_promise(*this).address()
-          << std::endl;
-    }
+  struct promise_type : public promise_impl<promise_type, T> {
     task get_return_object() noexcept {
       // Step 1: store coroutine handle associated with this task
       return task{std::coroutine_handle<promise_type>::from_promise(*this)};
     }
-    // task will be executed deferred
-    std::suspend_always initial_suspend() noexcept { return {}; }
-
-    // Step 3: when task is finished, we should resume caller coroutine
-    auto final_suspend() noexcept {
-      // return final awaiter
-      struct final_awaiter {
-        // await_ready is used for optimisation, we always return false
-        bool await_ready() noexcept { return false; }
-        std::coroutine_handle<>
-        await_suspend(std::coroutine_handle<promise_type>) noexcept {
-          // resume caller coroutine
-          return callerHandle_;
-        }
-        void await_resume() noexcept {}
-        std::coroutine_handle<> callerHandle_;
-      };
-      return final_awaiter{callerHandle_};
-    }
-    void return_void() noexcept {}
-    // Currently we don't handle exceptions
-    void unhandled_exception() noexcept {}
-    // Hold caller coroutine's handle
-    std::coroutine_handle<> callerHandle_;
   };
 
   // This awaiter will be called when executing co_await some task
@@ -73,11 +78,18 @@ struct task final {
       await_suspend(std::coroutine_handle<> caller) noexcept {
         // Step 2:
         // Store caller coroutine's handle, caller's coroutine will be suspended
-        taskHandle_.promise().callerHandle_ = caller;
+        this->taskHandle_.promise().callerHandle_ = caller;
         // Resume task's coroutine
-        return taskHandle_;
+        return this->taskHandle_;
       }
-      void await_resume() noexcept {}
+      T await_resume() noexcept {
+        if constexpr (std::is_same_v<T, void>) {
+          return;
+        } else {
+          // Return task's result
+          return this->taskHandle_.promise().value_;
+        }
+      }
       std::coroutine_handle<promise_type> taskHandle_;
     };
     return awaiter{taskHandle_};
